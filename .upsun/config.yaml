@@ -81,15 +81,9 @@ applications:
       "/var/log":
         source: instance
         source_path: "log"
-      "/app/etc":
-        source: storage
-        source_path: "etc"
       "/pub/media":
         source: storage
         source_path: "media"
-      "/pub/static":
-        source: storage
-        source_path: "static"
       "/var/report":
         source: tmp
         source_path: "report"
