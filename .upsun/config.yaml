@@ -113,10 +113,11 @@ applications:
           # Adobe Commerce Cloud - use ece-tools for build
           php ./vendor/bin/ece-tools run scenario/build/generate.xml
           php ./vendor/bin/ece-tools run scenario/build/transfer.xml
+        else
+          # Open Source Magento - compile DI in build phase
+          # This works now because we have app/etc/config.php committed
+          php bin/magento setup:di:compile
         fi
-
-        # For Open Source: Only composer install in build phase
-        # All Magento commands will run in deploy phase when DB is available
       
       deploy: |
         set -e
