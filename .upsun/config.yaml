@@ -123,9 +123,8 @@ applications:
           php ./vendor/bin/ece-tools run scenario/build/generate.xml
           php ./vendor/bin/ece-tools run scenario/build/transfer.xml
         else
-          # Open Source Magento
-          php bin/magento setup:di:compile
-          php bin/magento setup:static-content:deploy -f en_US --jobs=$(nproc)
+          # Open Source Magento - skip build commands, install in deploy phase
+          echo "Magento build phase complete. Installation will occur during deploy."
         fi
       
       deploy: |
@@ -136,7 +135,35 @@ applications:
           php ./vendor/bin/ece-tools run scenario/deploy.xml
         else
           # Open Source deployment
-          php bin/magento setup:upgrade --keep-generated
+          if [ ! -f app/etc/env.php ]; then
+            # First time installation
+            php bin/magento setup:install \
+              --base-url=https://$PLATFORM_ROUTES_MAIN \
+              --db-host=database.internal \
+              --db-name=main \
+              --db-user=user \
+              --db-password="" \
+              --backend-frontname=admin \
+              --search-engine=opensearch \
+              --opensearch-host=search.internal \
+              --opensearch-port=9200 \
+              --cache-backend=redis \
+              --cache-backend-redis-server=cache.internal \
+              --session-save=redis \
+              --session-save-redis-host=session.internal \
+              --use-rewrites=1 \
+              --admin-firstname=Admin \
+              --admin-lastname=User \
+              --admin-email=admin@example.com \
+              --admin-user=admin \
+              --admin-password=Admin123! \
+              --language=en_US \
+              --currency=USD \
+              --timezone=America/New_York
+          else
+            # Subsequent deployments
+            php bin/magento setup:upgrade --keep-generated
+          fi
           
           # Configure OpenSearch
           php bin/magento config:set catalog/search/engine opensearch
@@ -147,6 +174,10 @@ applications:
           # Configure Redis
           php bin/magento setup:config:set --cache-backend=redis --cache-backend-redis-server=cache.internal
           php bin/magento setup:config:set --session-save=redis --session-save-redis-host=session.internal
+          
+          # Compile and deploy static content
+          php bin/magento setup:di:compile
+          php bin/magento setup:static-content:deploy -f en_US --jobs=$(nproc)
           
           # Set production mode
           php bin/magento deploy:mode:set production --skip-compilation
