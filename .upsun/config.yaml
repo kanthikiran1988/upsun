@@ -84,6 +84,12 @@ applications:
       "/pub/media":
         source: storage
         source_path: "media"
+      "/pub/static":
+        source: storage
+        source_path: "static"
+      "/app/etc":
+        source: storage
+        source_path: "etc"
       "/var/report":
         source: tmp
         source_path: "report"
@@ -91,23 +97,27 @@ applications:
     hooks:
       build: |
         set -e
-        
+
         # Setup Node.js
         unset NPM_CONFIG_PREFIX
         export NVM_DIR="$PLATFORM_APP_DIR/.nvm"
         curl -f -o- https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh | bash
         [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
         nvm install $NODE_VERSION
-        
+
         # Setup environment
         echo 'unset NPM_CONFIG_PREFIX' >> .environment
         echo 'export NO_UPDATE_NOTIFIER=1' >> .environment
         echo 'export NVM_DIR="$PLATFORM_APP_DIR/.nvm"' >> .environment
         echo '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' >> .environment
-        
+
+        # Save config.php for later (since app/etc will be mounted and hide git files)
+        mkdir -p init
+        cp app/etc/config.php init/config.php
+
         # Install Magento
         composer install --no-dev --no-interaction --optimize-autoloader
-        
+
         # Check if using Adobe Commerce Cloud or Open Source
         if [ -f ./vendor/bin/ece-tools ]; then
           # Adobe Commerce Cloud - use ece-tools for build
@@ -126,7 +136,10 @@ applications:
           # Adobe Commerce Cloud
           php ./vendor/bin/ece-tools run scenario/deploy.xml
         else
-          # Open Source deployment - Extract connection details from Upsun relationships
+          # Open Source deployment - Restore config.php to mounted /app/etc
+          cp init/config.php app/etc/config.php
+
+          # Extract connection details from Upsun relationships
           export RELATIONSHIPS_JSON=$(echo $PLATFORM_RELATIONSHIPS | base64 -d)
 
           # Get database credentials
@@ -153,32 +166,36 @@ applications:
 
           # Check if env.php has database configuration (not just if file exists)
           if [ ! -f app/etc/env.php ] || ! grep -q "'db'" app/etc/env.php; then
-            # First time installation - setup:install enables all modules and creates DB
-            php bin/magento setup:install \
-              --base-url="$BASE_URL/" \
+            # Create env.php with database configuration
+            php bin/magento setup:config:set \
               --db-host="$DB_HOST:$DB_PORT" \
               --db-name="$DB_NAME" \
               --db-user="$DB_USER" \
               --db-password="$DB_PASSWORD" \
-              --backend-frontname=admin \
-              --search-engine=opensearch \
-              --opensearch-host="$OPENSEARCH_HOST" \
-              --opensearch-port="$OPENSEARCH_PORT" \
+              --backend-frontname=admin
+
+            # Configure Redis cache
+            php bin/magento setup:config:set \
               --cache-backend=redis \
               --cache-backend-redis-server="$REDIS_HOST" \
-              --cache-backend-redis-port="$REDIS_PORT" \
+              --cache-backend-redis-port="$REDIS_PORT"
+
+            # Configure Redis session
+            php bin/magento setup:config:set \
               --session-save=redis \
               --session-save-redis-host="$REDIS_SESSION_HOST" \
-              --session-save-redis-port="$REDIS_SESSION_PORT" \
-              --use-rewrites=1 \
-              --admin-firstname=Admin \
-              --admin-lastname=User \
-              --admin-email=admin@example.com \
+              --session-save-redis-port="$REDIS_SESSION_PORT"
+
+            # Run setup:upgrade to install/update database schema
+            php bin/magento setup:upgrade --keep-generated
+
+            # Create admin user
+            php bin/magento admin:user:create \
               --admin-user=admin \
               --admin-password=Admin123! \
-              --language=en_US \
-              --currency=USD \
-              --timezone=America/New_York
+              --admin-email=admin@example.com \
+              --admin-firstname=Admin \
+              --admin-lastname=User || true
           else
             # Subsequent deployments - use --keep-generated since DI was compiled in build
             php bin/magento setup:upgrade --keep-generated
