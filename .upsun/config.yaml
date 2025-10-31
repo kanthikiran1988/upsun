@@ -164,25 +164,25 @@ applications:
             php bin/magento setup:di:compile
           fi
 
-          # Check if database is initialized
+          # Check if database has data (not just schema)
           export RELATIONSHIPS_JSON=$(echo $PLATFORM_RELATIONSHIPS | base64 -d)
-          DB_INITIALIZED=$(php -r '
+          DB_HAS_DATA=$(php -r '
           $rel = json_decode($_SERVER["RELATIONSHIPS_JSON"], true);
           $db = $rel["database"][0];
           try {
               $pdo = new PDO("mysql:host={$db["host"]};port={$db["port"]};dbname={$db["path"]}", $db["username"], $db["password"]);
-              $result = $pdo->query("SHOW TABLES LIKE \"core_config_data\"")->fetch();
-              echo $result ? "yes" : "no";
+              // Check if entity types exist (critical Magento data)
+              $result = $pdo->query("SELECT COUNT(*) FROM eav_entity_type WHERE entity_type_code=\"customer\"")->fetchColumn();
+              echo ($result > 0) ? "yes" : "no";
           } catch (Exception $e) {
               echo "no";
           }
           ')
 
-          if [ "$DB_INITIALIZED" = "no" ]; then
-            echo "First deployment - initializing database..."
-            # Force database schema creation
+          if [ "$DB_HAS_DATA" = "no" ]; then
+            echo "Database needs initialization..."
+            # Force database schema and data installation
             php bin/magento setup:db-schema:upgrade || true
-            # Load initial data fixtures (entity types, default website, stores)
             php bin/magento setup:db-data:upgrade || true
           fi
 
