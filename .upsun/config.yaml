@@ -1,0 +1,8 @@
+# Configuration modified from branch-2
+# This is a commit from branch-2
+
+# Simple Upsun configuration
+applications:
+  app:
+    source:
+      root: "/"
