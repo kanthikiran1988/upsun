@@ -211,7 +211,7 @@ services:
       properties:
         optimizer_switch: "rowid_filter=off"
         optimizer_use_condition_selectivity: 1
-        max_allowed_packet: 64M
+        max_allowed_packet: 67108864
       schemas:
         - main
       endpoints:
