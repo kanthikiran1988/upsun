@@ -164,6 +164,26 @@ applications:
             php bin/magento setup:di:compile
           fi
 
+          # Check if database is initialized
+          export RELATIONSHIPS_JSON=$(echo $PLATFORM_RELATIONSHIPS | base64 -d)
+          DB_INITIALIZED=$(php -r '
+          $rel = json_decode($_SERVER["RELATIONSHIPS_JSON"], true);
+          $db = $rel["database"][0];
+          try {
+              $pdo = new PDO("mysql:host={$db["host"]};port={$db["port"]};dbname={$db["path"]}", $db["username"], $db["password"]);
+              $result = $pdo->query("SHOW TABLES LIKE \"core_config_data\"")->fetch();
+              echo $result ? "yes" : "no";
+          } catch (Exception $e) {
+              echo "no";
+          }
+          ')
+
+          if [ "$DB_INITIALIZED" = "no" ]; then
+            echo "First deployment - initializing database..."
+            # Force database schema creation by running setup:db-schema:upgrade first
+            php bin/magento setup:db-schema:upgrade || true
+          fi
+
           # Run setup:upgrade to create/update database schema
           php bin/magento setup:upgrade --keep-generated
 
