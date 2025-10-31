@@ -87,6 +87,9 @@ applications:
       "/generated":
         source: storage
         source_path: "generated"
+      "/app/etc":
+        source: storage
+        source_path: "etc"
     
     hooks:
       build: |
@@ -108,37 +111,6 @@ applications:
         # Install Magento
         composer install --no-dev --no-interaction --optimize-autoloader
 
-        # Create env.php that dynamically configures based on available services
-        php -d display_errors=0 << 'PHPSCRIPT'
-        <?php
-        $envphp = '<?php
-        $relationships = [];
-        if (isset($_ENV["PLATFORM_RELATIONSHIPS"])) {
-            $relationships = json_decode(base64_decode($_ENV["PLATFORM_RELATIONSHIPS"]), true) ?? [];
-        }
-        $db = $relationships["database"][0] ?? null;
-        $redis = $relationships["redis"][0] ?? null;
-        $redis_session = $relationships["redis-session"][0] ?? null;
-        $config = [
-            "backend" => ["frontName" => "admin"],
-            "install" => ["date" => "' . date('r') . '"],
-            "crypt" => ["key" => "' . bin2hex(random_bytes(16)) . '"]
-        ];
-        if ($db) {
-            $config["db"] = ["table_prefix" => "", "connection" => ["default" => ["host" => $db["host"], "dbname" => $db["path"], "username" => $db["username"], "password" => $db["password"], "model" => "mysql4", "engine" => "innodb", "initStatements" => "SET NAMES utf8;", "active" => "1"]]];
-        }
-        if ($redis) {
-            $config["cache"] = ["frontend" => ["default" => ["backend" => "Magento\\\\Framework\\\\Cache\\\\Backend\\\\Redis", "backend_options" => ["server" => $redis["host"], "port" => $redis["port"], "database" => "0"]]]];
-        }
-        if ($redis_session) {
-            $config["session"] = ["save" => "redis", "redis" => ["host" => $redis_session["host"], "port" => $redis_session["port"], "database" => "2"]];
-        }
-        return $config;
-        ';
-        file_put_contents("app/etc/env.php", $envphp);
-        ?>
-        PHPSCRIPT
-
         # Check if using Adobe Commerce Cloud or Open Source
         if [ -f ./vendor/bin/ece-tools ]; then
           # Adobe Commerce Cloud - use ece-tools for build
@@ -156,7 +128,76 @@ applications:
           php ./vendor/bin/ece-tools run scenario/deploy.xml
         else
           # Open Source deployment
-          # env.php already created in build and reads from runtime environment
+
+          # Copy config.php to mounted /app/etc (from git repository)
+          # The mount starts empty, so we need to populate it
+          if [ -f app/etc/config.php.dist ]; then
+            cp app/etc/config.php.dist app/etc/config.php
+          fi
+
+          # Create env.php in mounted /app/etc with runtime environment variables
+          php -d display_errors=0 <<'EOPHP'
+          <?php
+          $relationships = [];
+          if (isset($_ENV["PLATFORM_RELATIONSHIPS"])) {
+              $relationships = json_decode(base64_decode($_ENV["PLATFORM_RELATIONSHIPS"]), true) ?? [];
+          }
+          $db = $relationships["database"][0] ?? null;
+          $redis = $relationships["redis"][0] ?? null;
+          $redis_session = $relationships["redis-session"][0] ?? null;
+
+          $config = [
+              "backend" => ["frontName" => "admin"],
+              "install" => ["date" => date('r')],
+              "crypt" => ["key" => bin2hex(random_bytes(16))]
+          ];
+
+          if ($db) {
+              $config["db"] = [
+                  "table_prefix" => "",
+                  "connection" => [
+                      "default" => [
+                          "host" => $db["host"],
+                          "dbname" => $db["path"],
+                          "username" => $db["username"],
+                          "password" => $db["password"],
+                          "model" => "mysql4",
+                          "engine" => "innodb",
+                          "initStatements" => "SET NAMES utf8;",
+                          "active" => "1"
+                          ]
+                  ]
+              ];
+          }
+
+          if ($redis) {
+              $config["cache"] = [
+                  "frontend" => [
+                      "default" => [
+                          "backend" => "Magento\\Framework\\Cache\\Backend\\Redis",
+                          "backend_options" => [
+                              "server" => $redis["host"],
+                              "port" => $redis["port"],
+                              "database" => "0"
+                          ]
+                      ]
+                  ]
+              ];
+          }
+
+          if ($redis_session) {
+              $config["session"] = [
+                  "save" => "redis",
+                  "redis" => [
+                      "host" => $redis_session["host"],
+                      "port" => $redis_session["port"],
+                      "database" => "2"
+                  ]
+              ];
+          }
+
+          file_put_contents("app/etc/env.php", "<?php\nreturn " . var_export($config, true) . ";\n");
+          EOPHP
 
           # Compile DI if needed (first deployment or after code changes)
           if [ ! -d generated/code ] || [ ! "$(ls -A generated/code)" ]; then
