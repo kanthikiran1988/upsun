@@ -105,56 +105,74 @@ applications:
         # Install Magento
         composer install --no-dev --no-interaction --optimize-autoloader
 
-        # Create env.php that reads from Platform.sh environment variables
-        php -r '
-        $env = <<<ENVPHP
-        <?php
-        \$relationships = json_decode(base64_decode(\$_ENV["PLATFORM_RELATIONSHIPS"] ?? ""), true) ?? [];
-        \$db = \$relationships["database"][0] ?? [];
-        \$redis = \$relationships["redis"][0] ?? [];
-        \$redis_session = \$relationships["redis-session"][0] ?? [];
-        return [
-            "backend" => ["frontName" => "admin"],
-            "db" => [
-                "table_prefix" => "",
-                "connection" => [
-                    "default" => [
-                        "host" => \$db["host"] ?? "localhost",
-                        "dbname" => \$db["path"] ?? "magento",
-                        "username" => \$db["username"] ?? "magento",
-                        "password" => \$db["password"] ?? "",
-                        "model" => "mysql4",
-                        "engine" => "innodb",
-                        "initStatements" => "SET NAMES utf8;",
-                        "active" => "1"
-                    ]
+        # Create env.php that dynamically configures based on available services
+        cat > app/etc/env.php << 'EOF'
+<?php
+// Get Platform.sh relationships
+$relationships = [];
+if (isset($_ENV['PLATFORM_RELATIONSHIPS'])) {
+    $relationships = json_decode(base64_decode($_ENV['PLATFORM_RELATIONSHIPS']), true) ?? [];
+}
+
+$db = $relationships['database'][0] ?? null;
+$redis = $relationships['redis'][0] ?? null;
+$redis_session = $relationships['redis-session'][0] ?? null;
+
+$config = [
+    'backend' => ['frontName' => 'admin'],
+    'install' => ['date' => '{{DATE}}']
+];
+
+// Only configure database if available
+if ($db) {
+    $config['db'] = [
+        'table_prefix' => '',
+        'connection' => [
+            'default' => [
+                'host' => $db['host'],
+                'dbname' => $db['path'],
+                'username' => $db['username'],
+                'password' => $db['password'],
+                'model' => 'mysql4',
+                'engine' => 'innodb',
+                'initStatements' => 'SET NAMES utf8;',
+                'active' => '1'
+            ]
+        ]
+    ];
+}
+
+// Only configure Redis cache if available
+if ($redis) {
+    $config['cache'] = [
+        'frontend' => [
+            'default' => [
+                'backend' => 'Magento\\Framework\\Cache\\Backend\\Redis',
+                'backend_options' => [
+                    'server' => $redis['host'],
+                    'port' => $redis['port'],
+                    'database' => '0'
                 ]
-            ],
-            "cache" => [
-                "frontend" => [
-                    "default" => [
-                        "backend" => "Magento\\\Framework\\\Cache\\\Backend\\\Redis",
-                        "backend_options" => [
-                            "server" => \$redis["host"] ?? "127.0.0.1",
-                            "port" => \$redis["port"] ?? "6379",
-                            "database" => "0"
-                        ]
-                    ]
-                ]
-            ],
-            "session" => [
-                "save" => "redis",
-                "redis" => [
-                    "host" => \$redis_session["host"] ?? "127.0.0.1",
-                    "port" => \$redis_session["port"] ?? "6379",
-                    "database" => "2"
-                ]
-            ],
-            "install" => ["date" => date("r")]
-        ];
-        ENVPHP;
-        file_put_contents("app/etc/env.php", $env);
-        '
+            ]
+        ]
+    ];
+}
+
+// Only configure Redis session if available
+if ($redis_session) {
+    $config['session'] = [
+        'save' => 'redis',
+        'redis' => [
+            'host' => $redis_session['host'],
+            'port' => $redis_session['port'],
+            'database' => '2'
+        ]
+    ];
+}
+
+return $config;
+EOF
+        sed -i "s/{{DATE}}/$(date -R)/" app/etc/env.php
 
         # Check if using Adobe Commerce Cloud or Open Source
         if [ -f ./vendor/bin/ece-tools ]; then
@@ -175,7 +193,7 @@ applications:
           php ./vendor/bin/ece-tools run scenario/deploy.xml
         else
           # Open Source deployment
-          # env.php already exists from build and reads from environment variables
+          # env.php already created in build and reads from runtime environment
 
           # Run setup:upgrade to create/update database schema
           php bin/magento setup:upgrade --keep-generated
