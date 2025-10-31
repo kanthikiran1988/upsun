@@ -121,6 +121,8 @@ applications:
           php ./vendor/bin/ece-tools run scenario/build/transfer.xml
         else
           # Open Source Magento
+          # Enable all modules first
+          php bin/magento module:enable --all
           # Generate DI and interceptors during build
           php bin/magento setup:di:compile
         fi
