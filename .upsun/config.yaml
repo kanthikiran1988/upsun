@@ -92,13 +92,6 @@ applications:
         source_path: "etc"
     
     hooks:
-      build: |
-        set -e
-
-      deploy: ece-tools run scenario/post-deploy.xml
-      install_cron: |
-        set -e
-        php bin/magento cron:install
       post_deploy: |
         set -e
         
