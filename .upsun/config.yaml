@@ -180,11 +180,13 @@ applications:
 
           if [ "$DB_INITIALIZED" = "no" ]; then
             echo "First deployment - initializing database..."
-            # Force database schema creation by running setup:db-schema:upgrade first
+            # Force database schema creation
             php bin/magento setup:db-schema:upgrade || true
+            # Load initial data fixtures (entity types, default website, stores)
+            php bin/magento setup:db-data:upgrade || true
           fi
 
-          # Run setup:upgrade to create/update database schema
+          # Run setup:upgrade to create/update database schema and data
           php bin/magento setup:upgrade --keep-generated
 
           # Create admin user (only runs on first deployment)
