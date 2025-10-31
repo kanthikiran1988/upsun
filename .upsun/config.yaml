@@ -90,9 +90,6 @@ applications:
       "/pub/static":
         source: storage
         source_path: "static"
-      "/generated":
-        source: storage
-        source_path: "generated"
       "/var/report":
         source: tmp
         source_path: "report"
@@ -123,8 +120,9 @@ applications:
           php ./vendor/bin/ece-tools run scenario/build/generate.xml
           php ./vendor/bin/ece-tools run scenario/build/transfer.xml
         else
-          # Open Source Magento - skip build commands, install in deploy phase
-          echo "Magento build phase complete. Installation will occur during deploy."
+          # Open Source Magento
+          # Generate DI and interceptors during build
+          php bin/magento setup:di:compile
         fi
       
       deploy: |
@@ -175,8 +173,7 @@ applications:
           php bin/magento setup:config:set --cache-backend=redis --cache-backend-redis-server=cache.internal
           php bin/magento setup:config:set --session-save=redis --session-save-redis-host=session.internal
           
-          # Compile and deploy static content
-          php bin/magento setup:di:compile
+          # Deploy static content
           php bin/magento setup:static-content:deploy -f en_US --jobs=$(nproc)
           
           # Set production mode
