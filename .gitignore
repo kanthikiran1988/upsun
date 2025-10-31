@@ -23,6 +23,8 @@
 !/update/.htaccess
 !/README.md
 !/op-exclude.txt
+!/.upsun/**
+!/.upsun/config.yaml
 auth.json
 .DS_Store
 
