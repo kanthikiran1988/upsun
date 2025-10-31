@@ -121,13 +121,14 @@ applications:
       
       deploy: |
         set -e
-        
+
         if [ -f ./vendor/bin/ece-tools ]; then
           # Adobe Commerce Cloud
           php ./vendor/bin/ece-tools run scenario/deploy.xml
         else
           # Open Source deployment
-          if [ ! -f app/etc/env.php ]; then
+          # Check if env.php has database configuration (not just if file exists)
+          if [ ! -f app/etc/env.php ] || ! grep -q "'db'" app/etc/env.php; then
             # First time installation - setup:install enables all modules and creates DB
             php bin/magento setup:install \
               --base-url=https://$PLATFORM_ROUTES_MAIN \
@@ -153,8 +154,8 @@ applications:
               --currency=USD \
               --timezone=America/New_York
           else
-            # Subsequent deployments - update DB schema and enable new modules
-            php bin/magento setup:upgrade
+            # Subsequent deployments - use --keep-generated since DI was compiled in build
+            php bin/magento setup:upgrade --keep-generated
           fi
 
           # Configure OpenSearch
@@ -167,13 +168,10 @@ applications:
           php bin/magento setup:config:set --cache-backend=redis --cache-backend-redis-server=cache.internal
           php bin/magento setup:config:set --session-save=redis --session-save-redis-host=session.internal
 
-          # Compile DI (AFTER setup:upgrade, when modules are enabled in DB)
-          php bin/magento setup:di:compile
-
-          # Deploy static content
+          # Deploy static content (no need to compile DI again, done in build)
           php bin/magento setup:static-content:deploy -f en_US --jobs=$(nproc)
 
-          # Set production mode (skip compilation since we already did it above)
+          # Set production mode (skip compilation since we already did it in build)
           php bin/magento deploy:mode:set production --skip-compilation
 
           # Enable caches
