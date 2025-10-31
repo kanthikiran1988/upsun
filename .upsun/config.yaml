@@ -105,6 +105,97 @@ applications:
         # Install Magento
         composer install --no-dev --no-interaction --optimize-autoloader
 
+        # Create env.php that reads from Platform.sh environment variables
+        cat > app/etc/env.php << 'ENVPHP'
+<?php
+// Dynamic env.php for Upsun/Platform.sh
+$relationships = json_decode(base64_decode($_ENV['PLATFORM_RELATIONSHIPS'] ?? ''), true) ?? [];
+$routes = json_decode(base64_decode($_ENV['PLATFORM_ROUTES'] ?? ''), true) ?? [];
+
+// Get primary route
+$base_url = '';
+foreach ($routes as $url => $route) {
+    if ($route['primary'] ?? false) {
+        $base_url = rtrim($url, '/');
+        break;
+    }
+}
+
+// Database configuration
+$db = $relationships['database'][0] ?? [];
+$redis = $relationships['redis'][0] ?? [];
+$redis_session = $relationships['redis-session'][0] ?? [];
+
+return [
+    'backend' => [
+        'frontName' => 'admin'
+    ],
+    'db' => [
+        'table_prefix' => '',
+        'connection' => [
+            'default' => [
+                'host' => $db['host'] ?? 'localhost',
+                'dbname' => $db['path'] ?? 'magento',
+                'username' => $db['username'] ?? 'magento',
+                'password' => $db['password'] ?? '',
+                'model' => 'mysql4',
+                'engine' => 'innodb',
+                'initStatements' => 'SET NAMES utf8;',
+                'active' => '1',
+                'driver_options' => [
+                    1014 => false
+                ]
+            ]
+        ]
+    ],
+    'cache' => [
+        'frontend' => [
+            'default' => [
+                'backend' => 'Magento\\Framework\\Cache\\Backend\\Redis',
+                'backend_options' => [
+                    'server' => $redis['host'] ?? '127.0.0.1',
+                    'port' => $redis['port'] ?? '6379',
+                    'database' => '0',
+                    'compress_data' => '1'
+                ]
+            ],
+            'page_cache' => [
+                'backend' => 'Magento\\Framework\\Cache\\Backend\\Redis',
+                'backend_options' => [
+                    'server' => $redis['host'] ?? '127.0.0.1',
+                    'port' => $redis['port'] ?? '6379',
+                    'database' => '1',
+                    'compress_data' => '0'
+                ]
+            ]
+        ]
+    ],
+    'session' => [
+        'save' => 'redis',
+        'redis' => [
+            'host' => $redis_session['host'] ?? '127.0.0.1',
+            'port' => $redis_session['port'] ?? '6379',
+            'database' => '2',
+            'compression_threshold' => '2048',
+            'compression_library' => 'gzip',
+            'log_level' => '3',
+            'max_concurrency' => '6',
+            'break_after_frontend' => '5',
+            'break_after_adminhtml' => '30',
+            'first_lifetime' => '600',
+            'bot_first_lifetime' => '60',
+            'bot_lifetime' => '7200',
+            'disable_locking' => '0',
+            'min_lifetime' => '60',
+            'max_lifetime' => '2592000'
+        ]
+    ],
+    'install' => [
+        'date' => date('r')
+    ]
+];
+ENVPHP
+
         # Check if using Adobe Commerce Cloud or Open Source
         if [ -f ./vendor/bin/ece-tools ]; then
           # Adobe Commerce Cloud - use ece-tools for build
@@ -123,69 +214,25 @@ applications:
           # Adobe Commerce Cloud
           php ./vendor/bin/ece-tools run scenario/deploy.xml
         else
-          # Open Source deployment - Extract connection details from Upsun relationships
+          # Open Source deployment
+          # env.php already exists from build and reads from environment variables
+
+          # Run setup:upgrade to create/update database schema
+          php bin/magento setup:upgrade --keep-generated
+
+          # Create admin user (only runs on first deployment)
+          php bin/magento admin:user:create \
+            --admin-user=admin \
+            --admin-password=Admin123! \
+            --admin-email=admin@example.com \
+            --admin-firstname=Admin \
+            --admin-lastname=User || true
+
+          # Configure OpenSearch
           export RELATIONSHIPS_JSON=$(echo $PLATFORM_RELATIONSHIPS | base64 -d)
-
-          # Get database credentials
-          export DB_HOST=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['host'];")
-          export DB_PORT=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['port'];")
-          export DB_NAME=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['path'];")
-          export DB_USER=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['username'];")
-          export DB_PASSWORD=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['password'];")
-
-          # Get Redis cache credentials
-          export REDIS_HOST=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['redis'][0]['host'];")
-          export REDIS_PORT=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['redis'][0]['port'];")
-
-          # Get Redis session credentials
-          export REDIS_SESSION_HOST=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['redis-session'][0]['host'];")
-          export REDIS_SESSION_PORT=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['redis-session'][0]['port'];")
-
-          # Get OpenSearch credentials
           export OPENSEARCH_HOST=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['opensearch'][0]['host'];")
           export OPENSEARCH_PORT=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['opensearch'][0]['port'];")
 
-          # Get primary route URL
-          export BASE_URL=$(echo $PLATFORM_ROUTES | base64 -d | php -r "\$routes = json_decode(file_get_contents('php://stdin'), true); foreach (\$routes as \$url => \$route) { if (\$route['primary'] === true) { echo rtrim(\$url, '/'); break; } }")
-
-          # Check if env.php has database configuration (not just if file exists)
-          if [ ! -f app/etc/env.php ] || ! grep -q "'db'" app/etc/env.php; then
-            # Create env.php with database configuration
-            php bin/magento setup:config:set \
-              --db-host="$DB_HOST:$DB_PORT" \
-              --db-name="$DB_NAME" \
-              --db-user="$DB_USER" \
-              --db-password="$DB_PASSWORD" \
-              --backend-frontname=admin
-
-            # Configure Redis cache
-            php bin/magento setup:config:set \
-              --cache-backend=redis \
-              --cache-backend-redis-server="$REDIS_HOST" \
-              --cache-backend-redis-port="$REDIS_PORT"
-
-            # Configure Redis session
-            php bin/magento setup:config:set \
-              --session-save=redis \
-              --session-save-redis-host="$REDIS_SESSION_HOST" \
-              --session-save-redis-port="$REDIS_SESSION_PORT"
-
-            # Run setup:upgrade to install/update database schema
-            php bin/magento setup:upgrade --keep-generated
-
-            # Create admin user
-            php bin/magento admin:user:create \
-              --admin-user=admin \
-              --admin-password=Admin123! \
-              --admin-email=admin@example.com \
-              --admin-firstname=Admin \
-              --admin-lastname=User || true
-          else
-            # Subsequent deployments - use --keep-generated since DI was compiled in build
-            php bin/magento setup:upgrade --keep-generated
-          fi
-
-          # Configure OpenSearch
           php bin/magento config:set catalog/search/engine opensearch
           php bin/magento config:set catalog/search/opensearch_server_hostname "$OPENSEARCH_HOST"
           php bin/magento config:set catalog/search/opensearch_server_port "$OPENSEARCH_PORT"
