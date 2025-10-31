@@ -87,6 +87,9 @@ applications:
       "/generated":
         source: storage
         source_path: "generated"
+      "/app/etc":
+        source: storage
+        source_path: "etc"
     
     hooks:
       build: |
@@ -107,6 +110,9 @@ applications:
 
         # Install Magento
         composer install --no-dev --no-interaction --optimize-autoloader
+
+        # Copy config.php to mounted /app/etc directory
+        cp magento.config.php app/etc/config.php
 
         # Create env.php that dynamically configures based on available services
         php -d display_errors=0 << 'PHPSCRIPT'
