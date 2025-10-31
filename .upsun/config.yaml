@@ -106,95 +106,55 @@ applications:
         composer install --no-dev --no-interaction --optimize-autoloader
 
         # Create env.php that reads from Platform.sh environment variables
-        cat > app/etc/env.php << 'ENVPHP'
-<?php
-// Dynamic env.php for Upsun/Platform.sh
-$relationships = json_decode(base64_decode($_ENV['PLATFORM_RELATIONSHIPS'] ?? ''), true) ?? [];
-$routes = json_decode(base64_decode($_ENV['PLATFORM_ROUTES'] ?? ''), true) ?? [];
-
-// Get primary route
-$base_url = '';
-foreach ($routes as $url => $route) {
-    if ($route['primary'] ?? false) {
-        $base_url = rtrim($url, '/');
-        break;
-    }
-}
-
-// Database configuration
-$db = $relationships['database'][0] ?? [];
-$redis = $relationships['redis'][0] ?? [];
-$redis_session = $relationships['redis-session'][0] ?? [];
-
-return [
-    'backend' => [
-        'frontName' => 'admin'
-    ],
-    'db' => [
-        'table_prefix' => '',
-        'connection' => [
-            'default' => [
-                'host' => $db['host'] ?? 'localhost',
-                'dbname' => $db['path'] ?? 'magento',
-                'username' => $db['username'] ?? 'magento',
-                'password' => $db['password'] ?? '',
-                'model' => 'mysql4',
-                'engine' => 'innodb',
-                'initStatements' => 'SET NAMES utf8;',
-                'active' => '1',
-                'driver_options' => [
-                    1014 => false
-                ]
-            ]
-        ]
-    ],
-    'cache' => [
-        'frontend' => [
-            'default' => [
-                'backend' => 'Magento\\Framework\\Cache\\Backend\\Redis',
-                'backend_options' => [
-                    'server' => $redis['host'] ?? '127.0.0.1',
-                    'port' => $redis['port'] ?? '6379',
-                    'database' => '0',
-                    'compress_data' => '1'
+        php -r '
+        $env = <<<ENVPHP
+        <?php
+        \$relationships = json_decode(base64_decode(\$_ENV["PLATFORM_RELATIONSHIPS"] ?? ""), true) ?? [];
+        \$db = \$relationships["database"][0] ?? [];
+        \$redis = \$relationships["redis"][0] ?? [];
+        \$redis_session = \$relationships["redis-session"][0] ?? [];
+        return [
+            "backend" => ["frontName" => "admin"],
+            "db" => [
+                "table_prefix" => "",
+                "connection" => [
+                    "default" => [
+                        "host" => \$db["host"] ?? "localhost",
+                        "dbname" => \$db["path"] ?? "magento",
+                        "username" => \$db["username"] ?? "magento",
+                        "password" => \$db["password"] ?? "",
+                        "model" => "mysql4",
+                        "engine" => "innodb",
+                        "initStatements" => "SET NAMES utf8;",
+                        "active" => "1"
+                    ]
                 ]
             ],
-            'page_cache' => [
-                'backend' => 'Magento\\Framework\\Cache\\Backend\\Redis',
-                'backend_options' => [
-                    'server' => $redis['host'] ?? '127.0.0.1',
-                    'port' => $redis['port'] ?? '6379',
-                    'database' => '1',
-                    'compress_data' => '0'
+            "cache" => [
+                "frontend" => [
+                    "default" => [
+                        "backend" => "Magento\\\Framework\\\Cache\\\Backend\\\Redis",
+                        "backend_options" => [
+                            "server" => \$redis["host"] ?? "127.0.0.1",
+                            "port" => \$redis["port"] ?? "6379",
+                            "database" => "0"
+                        ]
+                    ]
                 ]
-            ]
-        ]
-    ],
-    'session' => [
-        'save' => 'redis',
-        'redis' => [
-            'host' => $redis_session['host'] ?? '127.0.0.1',
-            'port' => $redis_session['port'] ?? '6379',
-            'database' => '2',
-            'compression_threshold' => '2048',
-            'compression_library' => 'gzip',
-            'log_level' => '3',
-            'max_concurrency' => '6',
-            'break_after_frontend' => '5',
-            'break_after_adminhtml' => '30',
-            'first_lifetime' => '600',
-            'bot_first_lifetime' => '60',
-            'bot_lifetime' => '7200',
-            'disable_locking' => '0',
-            'min_lifetime' => '60',
-            'max_lifetime' => '2592000'
-        ]
-    ],
-    'install' => [
-        'date' => date('r')
-    ]
-];
-ENVPHP
+            ],
+            "session" => [
+                "save" => "redis",
+                "redis" => [
+                    "host" => \$redis_session["host"] ?? "127.0.0.1",
+                    "port" => \$redis_session["port"] ?? "6379",
+                    "database" => "2"
+                ]
+            ],
+            "install" => ["date" => date("r")]
+        ];
+        ENVPHP;
+        file_put_contents("app/etc/env.php", $env);
+        '
 
         # Check if using Adobe Commerce Cloud or Open Source
         if [ -f ./vendor/bin/ece-tools ]; then
