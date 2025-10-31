@@ -1,0 +1,9 @@
+# Configuration modified from new-branch-1
+# This is a commit from new-branch-1
+
+# Simple Upsun configuration
+applications:
+  app:
+    source:
+      root: "/"
+    type: "php:8.3"
