@@ -117,8 +117,9 @@ applications:
         $redis = $relationships["redis"][0] ?? null;
         $redis_session = $relationships["redis-session"][0] ?? null;
         $config = ["backend" => ["frontName" => "admin"], "install" => ["date" => "' . date('r') . '"]];
-        $config["db"] = ["table_prefix" => "", "connection" => ["default" => ["host" => ($db["host"] ?? "localhost"), "dbname" => ($db["path"] ?? "magento"), "username" => ($db["username"] ?? "root"), "password" => ($db["password"] ?? ""), "model" => "mysql4", "engine" => "innodb", "initStatements" => "SET NAMES utf8;", "active" => "1"]]];
-
+        if ($db) {
+            $config["db"] = ["table_prefix" => "", "connection" => ["default" => ["host" => $db["host"], "dbname" => $db["path"], "username" => $db["username"], "password" => $db["password"], "model" => "mysql4", "engine" => "innodb", "initStatements" => "SET NAMES utf8;", "active" => "1"]]];
+        }
         if ($redis) {
             $config["cache"] = ["frontend" => ["default" => ["backend" => "Magento\\\\Framework\\\\Cache\\\\Backend\\\\Redis", "backend_options" => ["server" => $redis["host"], "port" => $redis["port"], "database" => "0"]]]];
         }
@@ -136,11 +137,9 @@ applications:
           # Adobe Commerce Cloud - use ece-tools for build
           php ./vendor/bin/ece-tools run scenario/build/generate.xml
           php ./vendor/bin/ece-tools run scenario/build/transfer.xml
-        else
-          # Open Source Magento - compile DI in build phase
-          # This works now because we have app/etc/config.php committed
-          php bin/magento setup:di:compile
         fi
+        # For Open Source: Skip DI compilation in build (no services available)
+        # It will be done during first deploy when DB/Redis are available
       
       deploy: |
         set -e
@@ -151,6 +150,12 @@ applications:
         else
           # Open Source deployment
           # env.php already created in build and reads from runtime environment
+
+          # Compile DI if needed (first deployment or after code changes)
+          if [ ! -d generated/code ] || [ ! "$(ls -A generated/code)" ]; then
+            echo "Running DI compilation (first deployment)..."
+            php bin/magento setup:di:compile
+          fi
 
           # Run setup:upgrade to create/update database schema
           php bin/magento setup:upgrade --keep-generated
