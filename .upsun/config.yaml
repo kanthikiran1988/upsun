@@ -116,16 +116,13 @@ applications:
         
         # Check if using Adobe Commerce Cloud or Open Source
         if [ -f ./vendor/bin/ece-tools ]; then
-          # Adobe Commerce Cloud
+          # Adobe Commerce Cloud - use ece-tools for build
           php ./vendor/bin/ece-tools run scenario/build/generate.xml
           php ./vendor/bin/ece-tools run scenario/build/transfer.xml
-        else
-          # Open Source Magento
-          # Enable all modules first
-          php bin/magento module:enable --all
-          # Generate DI and interceptors during build
-          php bin/magento setup:di:compile
         fi
+
+        # For Open Source: Only composer install in build phase
+        # All Magento commands will run in deploy phase when DB is available
       
       deploy: |
         set -e
@@ -136,7 +133,7 @@ applications:
         else
           # Open Source deployment
           if [ ! -f app/etc/env.php ]; then
-            # First time installation
+            # First time installation - setup:install enables all modules and creates DB
             php bin/magento setup:install \
               --base-url=https://$PLATFORM_ROUTES_MAIN \
               --db-host=database.internal \
@@ -161,26 +158,29 @@ applications:
               --currency=USD \
               --timezone=America/New_York
           else
-            # Subsequent deployments
-            php bin/magento setup:upgrade --keep-generated
+            # Subsequent deployments - update DB schema and enable new modules
+            php bin/magento setup:upgrade
           fi
-          
+
           # Configure OpenSearch
           php bin/magento config:set catalog/search/engine opensearch
           php bin/magento config:set catalog/search/opensearch_server_hostname search.internal
           php bin/magento config:set catalog/search/opensearch_server_port 9200
           php bin/magento config:set catalog/search/opensearch_index_prefix magento2
-          
+
           # Configure Redis
           php bin/magento setup:config:set --cache-backend=redis --cache-backend-redis-server=cache.internal
           php bin/magento setup:config:set --session-save=redis --session-save-redis-host=session.internal
-          
+
+          # Compile DI (AFTER setup:upgrade, when modules are enabled in DB)
+          php bin/magento setup:di:compile
+
           # Deploy static content
           php bin/magento setup:static-content:deploy -f en_US --jobs=$(nproc)
-          
-          # Set production mode
+
+          # Set production mode (skip compilation since we already did it above)
           php bin/magento deploy:mode:set production --skip-compilation
-          
+
           # Enable caches
           php bin/magento cache:enable
         fi
