@@ -129,75 +129,37 @@ applications:
         else
           # Open Source deployment
 
-          # Copy config.php to mounted /app/etc (from git repository)
-          # The mount starts empty, so we need to populate it
-          if [ -f app/etc/config.php.dist ]; then
-            cp app/etc/config.php.dist app/etc/config.php
+          # Get database connection from Platform.sh relationships
+          export RELATIONSHIPS_JSON=$(echo $PLATFORM_RELATIONSHIPS | base64 -d)
+          export DB_HOST=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['host'];")
+          export DB_PORT=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['port'];")
+          export DB_NAME=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['path'];")
+          export DB_USER=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['username'];")
+          export DB_PASS=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['password'];")
+
+          # Check if Magento is already installed
+          if [ ! -f app/etc/env.php ]; then
+            echo "Running Magento installation..."
+            php bin/magento setup:install \
+              --base-url=https://$PLATFORM_ROUTES \
+              --db-host="$DB_HOST:$DB_PORT" \
+              --db-name="$DB_NAME" \
+              --db-user="$DB_USER" \
+              --db-password="$DB_PASS" \
+              --admin-firstname=Admin \
+              --admin-lastname=User \
+              --admin-email=admin@example.com \
+              --admin-user=admin \
+              --admin-password=Admin123! \
+              --language=en_US \
+              --currency=USD \
+              --timezone=America/Chicago \
+              --use-rewrites=1 \
+              --backend-frontname=admin
+          else
+            echo "Magento already installed, running upgrade..."
+            php bin/magento setup:upgrade --keep-generated
           fi
-
-          # Create env.php in mounted /app/etc with runtime environment variables
-          php -d display_errors=0 <<'EOPHP'
-          <?php
-          $relationships = [];
-          if (isset($_ENV["PLATFORM_RELATIONSHIPS"])) {
-              $relationships = json_decode(base64_decode($_ENV["PLATFORM_RELATIONSHIPS"]), true) ?? [];
-          }
-          $db = $relationships["database"][0] ?? null;
-          $redis = $relationships["redis"][0] ?? null;
-          $redis_session = $relationships["redis-session"][0] ?? null;
-
-          $config = [
-              "backend" => ["frontName" => "admin"],
-              "install" => ["date" => date('r')],
-              "crypt" => ["key" => bin2hex(random_bytes(16))]
-          ];
-
-          if ($db) {
-              $config["db"] = [
-                  "table_prefix" => "",
-                  "connection" => [
-                      "default" => [
-                          "host" => $db["host"],
-                          "dbname" => $db["path"],
-                          "username" => $db["username"],
-                          "password" => $db["password"],
-                          "model" => "mysql4",
-                          "engine" => "innodb",
-                          "initStatements" => "SET NAMES utf8;",
-                          "active" => "1"
-                          ]
-                  ]
-              ];
-          }
-
-          if ($redis) {
-              $config["cache"] = [
-                  "frontend" => [
-                      "default" => [
-                          "backend" => "Magento\\Framework\\Cache\\Backend\\Redis",
-                          "backend_options" => [
-                              "server" => $redis["host"],
-                              "port" => $redis["port"],
-                              "database" => "0"
-                          ]
-                      ]
-                  ]
-              ];
-          }
-
-          if ($redis_session) {
-              $config["session"] = [
-                  "save" => "redis",
-                  "redis" => [
-                      "host" => $redis_session["host"],
-                      "port" => $redis_session["port"],
-                      "database" => "2"
-                  ]
-              ];
-          }
-
-          file_put_contents("app/etc/env.php", "<?php\nreturn " . var_export($config, true) . ";\n");
-          EOPHP
 
           # Compile DI if needed (first deployment or after code changes)
           if [ ! -d generated/code ] || [ ! "$(ls -A generated/code)" ]; then
