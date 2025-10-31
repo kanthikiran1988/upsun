@@ -106,73 +106,31 @@ applications:
         composer install --no-dev --no-interaction --optimize-autoloader
 
         # Create env.php that dynamically configures based on available services
-        cat > app/etc/env.php << 'EOF'
-<?php
-// Get Platform.sh relationships
-$relationships = [];
-if (isset($_ENV['PLATFORM_RELATIONSHIPS'])) {
-    $relationships = json_decode(base64_decode($_ENV['PLATFORM_RELATIONSHIPS']), true) ?? [];
-}
-
-$db = $relationships['database'][0] ?? null;
-$redis = $relationships['redis'][0] ?? null;
-$redis_session = $relationships['redis-session'][0] ?? null;
-
-$config = [
-    'backend' => ['frontName' => 'admin'],
-    'install' => ['date' => '{{DATE}}']
-];
-
-// Only configure database if available
-if ($db) {
-    $config['db'] = [
-        'table_prefix' => '',
-        'connection' => [
-            'default' => [
-                'host' => $db['host'],
-                'dbname' => $db['path'],
-                'username' => $db['username'],
-                'password' => $db['password'],
-                'model' => 'mysql4',
-                'engine' => 'innodb',
-                'initStatements' => 'SET NAMES utf8;',
-                'active' => '1'
-            ]
-        ]
-    ];
-}
-
-// Only configure Redis cache if available
-if ($redis) {
-    $config['cache'] = [
-        'frontend' => [
-            'default' => [
-                'backend' => 'Magento\\Framework\\Cache\\Backend\\Redis',
-                'backend_options' => [
-                    'server' => $redis['host'],
-                    'port' => $redis['port'],
-                    'database' => '0'
-                ]
-            ]
-        ]
-    ];
-}
-
-// Only configure Redis session if available
-if ($redis_session) {
-    $config['session'] = [
-        'save' => 'redis',
-        'redis' => [
-            'host' => $redis_session['host'],
-            'port' => $redis_session['port'],
-            'database' => '2'
-        ]
-    ];
-}
-
-return $config;
-EOF
-        sed -i "s/{{DATE}}/$(date -R)/" app/etc/env.php
+        php -d display_errors=0 << 'PHPSCRIPT'
+        <?php
+        $envphp = '<?php
+        $relationships = [];
+        if (isset($_ENV["PLATFORM_RELATIONSHIPS"])) {
+            $relationships = json_decode(base64_decode($_ENV["PLATFORM_RELATIONSHIPS"]), true) ?? [];
+        }
+        $db = $relationships["database"][0] ?? null;
+        $redis = $relationships["redis"][0] ?? null;
+        $redis_session = $relationships["redis-session"][0] ?? null;
+        $config = ["backend" => ["frontName" => "admin"], "install" => ["date" => "' . date('r') . '"]];
+        if ($db) {
+            $config["db"] = ["table_prefix" => "", "connection" => ["default" => ["host" => $db["host"], "dbname" => $db["path"], "username" => $db["username"], "password" => $db["password"], "model" => "mysql4", "engine" => "innodb", "initStatements" => "SET NAMES utf8;", "active" => "1"]]];
+        }
+        if ($redis) {
+            $config["cache"] = ["frontend" => ["default" => ["backend" => "Magento\\\\Framework\\\\Cache\\\\Backend\\\\Redis", "backend_options" => ["server" => $redis["host"], "port" => $redis["port"], "database" => "0"]]]];
+        }
+        if ($redis_session) {
+            $config["session"] = ["save" => "redis", "redis" => ["host" => $redis_session["host"], "port" => $redis_session["port"], "database" => "2"]];
+        }
+        return $config;
+        ';
+        file_put_contents("app/etc/env.php", $envphp);
+        ?>
+        PHPSCRIPT
 
         # Check if using Adobe Commerce Cloud or Open Source
         if [ -f ./vendor/bin/ece-tools ]; then
