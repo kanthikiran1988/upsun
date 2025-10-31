@@ -117,9 +117,8 @@ applications:
         $redis = $relationships["redis"][0] ?? null;
         $redis_session = $relationships["redis-session"][0] ?? null;
         $config = ["backend" => ["frontName" => "admin"], "install" => ["date" => "' . date('r') . '"]];
-        if ($db) {
-            $config["db"] = ["table_prefix" => "", "connection" => ["default" => ["host" => $db["host"], "dbname" => $db["path"], "username" => $db["username"], "password" => $db["password"], "model" => "mysql4", "engine" => "innodb", "initStatements" => "SET NAMES utf8;", "active" => "1"]]];
-        }
+        $config["db"] = ["table_prefix" => "", "connection" => ["default" => ["host" => ($db["host"] ?? "localhost"), "dbname" => ($db["path"] ?? "magento"), "username" => ($db["username"] ?? "root"), "password" => ($db["password"] ?? ""), "model" => "mysql4", "engine" => "innodb", "initStatements" => "SET NAMES utf8;", "active" => "1"]]];
+
         if ($redis) {
             $config["cache"] = ["frontend" => ["default" => ["backend" => "Magento\\\\Framework\\\\Cache\\\\Backend\\\\Redis", "backend_options" => ["server" => $redis["host"], "port" => $redis["port"], "database" => "0"]]]];
         }
