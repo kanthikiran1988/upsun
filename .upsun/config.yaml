@@ -119,7 +119,11 @@ applications:
         $db = $relationships["database"][0] ?? null;
         $redis = $relationships["redis"][0] ?? null;
         $redis_session = $relationships["redis-session"][0] ?? null;
-        $config = ["backend" => ["frontName" => "admin"], "install" => ["date" => "' . date('r') . '"]];
+        $config = [
+            "backend" => ["frontName" => "admin"],
+            "install" => ["date" => "' . date('r') . '"],
+            "crypt" => ["key" => "' . bin2hex(random_bytes(16)) . '"]
+        ];
         if ($db) {
             $config["db"] = ["table_prefix" => "", "connection" => ["default" => ["host" => $db["host"], "dbname" => $db["path"], "username" => $db["username"], "password" => $db["password"], "model" => "mysql4", "engine" => "innodb", "initStatements" => "SET NAMES utf8;", "active" => "1"]]];
         }
