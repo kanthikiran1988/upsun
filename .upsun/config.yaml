@@ -84,6 +84,9 @@ applications:
       "/pub/static":
         source: storage
         source_path: "static"
+      "/generated":
+        source: storage
+        source_path: "generated"
     
     hooks:
       build: |
