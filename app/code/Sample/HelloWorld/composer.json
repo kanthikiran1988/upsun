@@ -1,0 +1,19 @@
+{
+    "name": "sample/module-helloworld",
+    "description": "Sample HelloWorld module for testing",
+    "type": "magento2-module",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "require": {
+        "php": "~8.1.0||~8.2.0||~8.3.0",
+        "magento/framework": "103.*"
+    },
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "Sample\\HelloWorld\\": ""
+        }
+    }
+}
