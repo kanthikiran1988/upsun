@@ -78,21 +78,12 @@ applications:
       "/var":
         source: storage
         source_path: "var"
-      "/var/log":
-        source: instance
-        source_path: "log"
       "/pub/media":
         source: storage
         source_path: "media"
       "/pub/static":
         source: storage
         source_path: "static"
-      "/app/etc":
-        source: storage
-        source_path: "etc"
-      "/var/report":
-        source: tmp
-        source_path: "report"
     
     hooks:
       build: |
@@ -110,10 +101,6 @@ applications:
         echo 'export NO_UPDATE_NOTIFIER=1' >> .environment
         echo 'export NVM_DIR="$PLATFORM_APP_DIR/.nvm"' >> .environment
         echo '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' >> .environment
-
-        # Save config.php for later (since app/etc will be mounted and hide git files)
-        mkdir -p init
-        cp app/etc/config.php init/config.php
 
         # Install Magento
         composer install --no-dev --no-interaction --optimize-autoloader
@@ -136,10 +123,7 @@ applications:
           # Adobe Commerce Cloud
           php ./vendor/bin/ece-tools run scenario/deploy.xml
         else
-          # Open Source deployment - Restore config.php to mounted /app/etc
-          cp init/config.php app/etc/config.php
-
-          # Extract connection details from Upsun relationships
+          # Open Source deployment - Extract connection details from Upsun relationships
           export RELATIONSHIPS_JSON=$(echo $PLATFORM_RELATIONSHIPS | base64 -d)
 
           # Get database credentials
