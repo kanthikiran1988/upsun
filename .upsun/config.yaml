@@ -126,24 +126,50 @@ applications:
           # Adobe Commerce Cloud
           php ./vendor/bin/ece-tools run scenario/deploy.xml
         else
-          # Open Source deployment
+          # Open Source deployment - Extract connection details from Upsun relationships
+          export RELATIONSHIPS_JSON=$(echo $PLATFORM_RELATIONSHIPS | base64 -d)
+
+          # Get database credentials
+          export DB_HOST=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['host'];")
+          export DB_PORT=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['port'];")
+          export DB_NAME=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['path'];")
+          export DB_USER=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['username'];")
+          export DB_PASSWORD=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['password'];")
+
+          # Get Redis cache credentials
+          export REDIS_HOST=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['redis'][0]['host'];")
+          export REDIS_PORT=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['redis'][0]['port'];")
+
+          # Get Redis session credentials
+          export REDIS_SESSION_HOST=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['redis-session'][0]['host'];")
+          export REDIS_SESSION_PORT=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['redis-session'][0]['port'];")
+
+          # Get OpenSearch credentials
+          export OPENSEARCH_HOST=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['opensearch'][0]['host'];")
+          export OPENSEARCH_PORT=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['opensearch'][0]['port'];")
+
+          # Get primary route URL
+          export BASE_URL=$(echo $PLATFORM_ROUTES | base64 -d | php -r "\$routes = json_decode(file_get_contents('php://stdin'), true); foreach (\$routes as \$url => \$route) { if (\$route['primary'] === true) { echo rtrim(\$url, '/'); break; } }")
+
           # Check if env.php has database configuration (not just if file exists)
           if [ ! -f app/etc/env.php ] || ! grep -q "'db'" app/etc/env.php; then
             # First time installation - setup:install enables all modules and creates DB
             php bin/magento setup:install \
-              --base-url=https://$PLATFORM_ROUTES_MAIN \
-              --db-host=database.internal \
-              --db-name=main \
-              --db-user=user \
-              --db-password="" \
+              --base-url="$BASE_URL/" \
+              --db-host="$DB_HOST:$DB_PORT" \
+              --db-name="$DB_NAME" \
+              --db-user="$DB_USER" \
+              --db-password="$DB_PASSWORD" \
               --backend-frontname=admin \
               --search-engine=opensearch \
-              --opensearch-host=search.internal \
-              --opensearch-port=9200 \
+              --opensearch-host="$OPENSEARCH_HOST" \
+              --opensearch-port="$OPENSEARCH_PORT" \
               --cache-backend=redis \
-              --cache-backend-redis-server=cache.internal \
+              --cache-backend-redis-server="$REDIS_HOST" \
+              --cache-backend-redis-port="$REDIS_PORT" \
               --session-save=redis \
-              --session-save-redis-host=session.internal \
+              --session-save-redis-host="$REDIS_SESSION_HOST" \
+              --session-save-redis-port="$REDIS_SESSION_PORT" \
               --use-rewrites=1 \
               --admin-firstname=Admin \
               --admin-lastname=User \
@@ -160,13 +186,9 @@ applications:
 
           # Configure OpenSearch
           php bin/magento config:set catalog/search/engine opensearch
-          php bin/magento config:set catalog/search/opensearch_server_hostname search.internal
-          php bin/magento config:set catalog/search/opensearch_server_port 9200
+          php bin/magento config:set catalog/search/opensearch_server_hostname "$OPENSEARCH_HOST"
+          php bin/magento config:set catalog/search/opensearch_server_port "$OPENSEARCH_PORT"
           php bin/magento config:set catalog/search/opensearch_index_prefix magento2
-
-          # Configure Redis
-          php bin/magento setup:config:set --cache-backend=redis --cache-backend-redis-server=cache.internal
-          php bin/magento setup:config:set --session-save=redis --session-save-redis-host=session.internal
 
           # Deploy static content (no need to compile DI again, done in build)
           php bin/magento setup:static-content:deploy -f en_US --jobs=$(nproc)
