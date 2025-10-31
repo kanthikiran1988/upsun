@@ -1,5 +1,9 @@
 *
 !/.gitignore
+!/.upsun
+!/.upsun/local/**
+!/.upsun/config.yaml
+!/.upsun/auth.json
 !/.magento.app.yaml
 !/.magento.env.yaml*
 !/.magento
@@ -23,8 +27,6 @@
 !/update/.htaccess
 !/README.md
 !/op-exclude.txt
-!/.upsun/**
-!/.upsun/config.yaml
-auth.json
+!/auth.json
 .DS_Store
 

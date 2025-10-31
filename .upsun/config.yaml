@@ -1,0 +1,289 @@
+applications:
+  testing-magento:
+    source:
+      root: "/"
+    
+    type: "php:8.3"  # 8.3 recommended for 2.4.8-p3
+    
+    dependencies:
+      php:
+        composer/composer: "^2"
+    
+    relationships:
+      database: "mysql:mysql"
+      redis: "redis:redis"
+      redis-session: "redis-session:redis"
+      opensearch: "opensearch:opensearch"  # OpenSearch recommended for 2.4.8
+      rabbitmq: "rabbitmq:rabbitmq"
+    
+    disk: 2048
+    
+    mounts:
+      "/var":
+        source: storage
+        source_path: "var"
+      "/generated":
+        source: storage
+        source_path: "generated"
+      "/app/etc":
+        source: storage
+        source_path: "etc"
+      "/pub/media":
+        source: storage
+        source_path: "media"
+      "/pub/static":
+        source: storage
+        source_path: "static"
+      "/.config":
+        source: storage
+        source_path: "config"
+      "/var/log":
+        source: instance
+        source_path: "log"
+      "/var/report":
+        source: tmp
+        source_path: "report"
+    
+    web:
+      locations:
+        "/":
+          root: "pub"
+          passthru: "/index.php"
+          index:
+            - index.php
+          scripts: true
+          allow: false
+          rules:
+            \.(css|js|map|hbs|gif|jpe?g|png|tiff|wbmp|ico|jng|bmp|svgz|midi?|mp?ga|mp2|mp3|m4a|ra|weba|3gpp?|mp4|mpe?g|mpe|ogv|mov|webm|flv|mng|asx|asf|wmv|avi|ogx|swf|jar|ttf|eot|woff|woff2|otf|html?|svg)$:
+              allow: true
+              expires: 1y
+              headers:
+                Cache-Control: "public, immutable"
+            ^/sitemap(.*)\.xml$:
+              passthru: "/media/sitemap$1.xml"
+        "/media":
+          root: "pub/media"
+          allow: true
+          scripts: false
+          passthru: "/get.php"
+          expires: 1y
+        "/static":
+          root: "pub/static"
+          allow: true
+          scripts: false
+          passthru: "/front-static.php"
+          rules:
+            ^/static/version\d+/(.*)$:
+              passthru: "/static/$1"
+        "/errors":
+          root: "pub/errors"
+          allow: true
+          scripts: false
+    
+    hooks:
+      build: |
+        set -e
+        
+        # Install dependencies
+        composer install --no-dev --prefer-dist --no-progress --no-interaction --optimize-autoloader
+        
+        # For Adobe Commerce Cloud ECE-Tools
+        if [ -f ./vendor/bin/ece-tools ]; then
+          php ./vendor/bin/ece-tools build:generate
+          php ./vendor/bin/ece-tools build:transfer
+        else
+          # For Open Source Magento
+          bin/magento setup:di:compile
+          bin/magento setup:static-content:deploy -f --jobs=$(nproc)
+        fi
+      
+      deploy: |
+        set -e
+        
+        # Check if this is first deployment
+        if [ ! -f app/etc/env.php ]; then
+          echo "First deployment - running setup:install"
+          
+          php bin/magento setup:install \
+            --backend-frontname=admin \
+            --db-host=$PLATFORM_RELATIONSHIPS.database[0].host \
+            --db-name=$PLATFORM_RELATIONSHIPS.database[0].path \
+            --db-user=$PLATFORM_RELATIONSHIPS.database[0].username \
+            --db-password=$PLATFORM_RELATIONSHIPS.database[0].password \
+            --session-save=redis \
+            --session-save-redis-host=$PLATFORM_RELATIONSHIPS.redis-session[0].host \
+            --session-save-redis-port=$PLATFORM_RELATIONSHIPS.redis-session[0].port \
+            --session-save-redis-db=0 \
+            --cache-backend=redis \
+            --cache-backend-redis-server=$PLATFORM_RELATIONSHIPS.redis[0].host \
+            --cache-backend-redis-port=$PLATFORM_RELATIONSHIPS.redis[0].port \
+            --cache-backend-redis-db=0 \
+            --page-cache=redis \
+            --page-cache-redis-server=$PLATFORM_RELATIONSHIPS.redis[0].host \
+            --page-cache-redis-port=$PLATFORM_RELATIONSHIPS.redis[0].port \
+            --page-cache-redis-db=1 \
+            --opensearch-host=$PLATFORM_RELATIONSHIPS.opensearch[0].host \
+            --opensearch-port=$PLATFORM_RELATIONSHIPS.opensearch[0].port \
+            --opensearch-enable-auth=0 \
+            --opensearch-index-prefix=magento2 \
+            --amqp-host=$PLATFORM_RELATIONSHIPS.rabbitmq[0].host \
+            --amqp-port=$PLATFORM_RELATIONSHIPS.rabbitmq[0].port \
+            --amqp-user=$PLATFORM_RELATIONSHIPS.rabbitmq[0].username \
+            --amqp-password=$PLATFORM_RELATIONSHIPS.rabbitmq[0].password
+        fi
+        
+        # Run upgrades and deployments
+        php bin/magento setup:upgrade --keep-generated
+        php bin/magento config:set catalog/search/engine opensearch
+        php bin/magento config:set catalog/search/opensearch_server_hostname $PLATFORM_RELATIONSHIPS.opensearch[0].host
+        php bin/magento config:set catalog/search/opensearch_server_port $PLATFORM_RELATIONSHIPS.opensearch[0].port
+        php bin/magento config:set catalog/search/opensearch_index_prefix magento2
+        
+        # Enable production mode
+        php bin/magento deploy:mode:set production --skip-compilation
+        
+        # Clear and flush caches
+        php bin/magento cache:enable
+        php bin/magento cache:flush
+        
+      post_deploy: |
+        set -e
+        
+        # Reindex if needed
+        php bin/magento indexer:reindex
+        
+        # Warm cache
+        php bin/magento cache:warm
+    
+    crons:
+    cronrun:
+        spec: "* * * * *"
+        cmd: "php bin/magento cron:run"
+
+    
+    runtime:
+      extensions:
+        - xsl
+        - sodium
+        - redis
+        - blackfire
+        - newrelic
+        - imagick
+        - opcache
+        - bcmath
+        - gd
+        - intl
+        - pdo_mysql
+        - soap
+        - zip
+    
+    variables:
+      env:
+        # Magento Environment Variables
+        CONFIG__DEFAULT__SYSTEM__SMTP__DISABLE: 1
+        CONFIG__DEFAULT__SYSTEM__FULL_PAGE_CACHE__CACHING_APPLICATION: 2
+        CONFIG__DEFAULT__SYSTEM__FULL_PAGE_CACHE__TTL: 604800
+        CONFIG__DEFAULT__CATALOG__SEARCH__ENGINE: "opensearch"
+        CONFIG__DEFAULT__ADMIN__SECURITY__ADMIN_ACCOUNT_SHARING: 1
+        CONFIG__DEFAULT__ADMIN__SECURITY__USE_FORM_KEY: 1
+        CONFIG__DEFAULT__ADMIN__SECURITY__SESSION_LIFETIME: 31536000
+        CONFIG__DEFAULT__ADMIN__SECURITY__PASSWORD_IS_FORCED: 0
+        CONFIG__DEFAULT__WEB__SECURE__USE_IN_FRONTEND: 1
+        CONFIG__DEFAULT__WEB__SECURE__USE_IN_ADMINHTML: 1
+        CONFIG__DEFAULT__WEB__SEO__USE_REWRITES: 1
+        CONFIG__DEFAULT__DEV__JS__MINIFY_FILES: 1
+        CONFIG__DEFAULT__DEV__CSS__MINIFY_FILES: 1
+        CONFIG__DEFAULT__DEV__STATIC__SIGN: 1
+        
+        # PHP Configuration
+        PHP_MEMORY_LIMIT: 4G
+        PHP_MAX_EXECUTION_TIME: 18000
+        PHP_MAX_INPUT_VARS: 10000
+        PHP_REALPATH_CACHE_SIZE: 10M
+        PHP_REALPATH_CACHE_TTL: 7200
+        PHP_OPCACHE_MEMORY_CONSUMPTION: 512
+        PHP_OPCACHE_MAX_ACCELERATED_FILES: 60000
+        PHP_OPCACHE_VALIDATE_TIMESTAMPS: 0
+        
+        # Composer Memory Limit
+        COMPOSER_MEMORY_LIMIT: 4G
+        
+        # Node options for build processes
+        NODE_OPTIONS: --max-old-space-size=4096
+
+services:
+  mysql:
+    type: "mysql:11.4"  # MySQL 8.0 recommended for 2.4.8
+    disk: 5120
+    configuration:
+      schemas:
+        - main
+      endpoints:
+        mysql:
+          default_schema: main
+          privileges:
+            main: admin
+      properties:
+        max_connections: 250
+        key_buffer_size: 32M
+        table_open_cache: 1024
+        sort_buffer_size: 2M
+        net_buffer_length: 8K
+        read_buffer_size: 2M
+        read_rnd_buffer_size: 8M
+        myisam_sort_buffer_size: 8M
+        max_allowed_packet: 128M
+        innodb_buffer_pool_size: 1G
+        innodb_log_file_size: 256M
+        innodb_flush_log_at_trx_commit: 2
+        innodb_flush_method: O_DIRECT
+        optimizer_switch: "block_nested_loop=off"
+  
+  redis:
+    type: "redis:7.2"
+    configuration:
+      maxmemory: 1024M
+      maxmemory-policy: allkeys-lru
+  
+  redis-session:
+    type: "redis:7.2"
+    configuration:
+      maxmemory: 512M
+      maxmemory-policy: allkeys-lru
+  
+  opensearch:
+    type: "opensearch:2.11"  # OpenSearch 2.x for Magento 2.4.8
+    disk: 2048
+    configuration:
+      plugins:
+        - analysis-icu
+        - analysis-phonetic
+      jvm:
+        - -Xms512m
+        - -Xmx512m
+  
+  rabbitmq:
+    type: "rabbitmq:3.12"
+    disk: 1024
+    configuration:
+      vhosts:
+        - name: magento
+      users:
+        - name: magento
+          password: magento
+
+routes:
+  "https://{default}/":
+    type: upstream
+    upstream: "magento:http"
+    cache:
+      enabled: true
+      default_ttl: 0
+      cookies:
+        - "*"
+      headers:
+        - Accept
+        - Accept-Language
+        - X-Requested-With
+    ssi:
+      enabled: false
