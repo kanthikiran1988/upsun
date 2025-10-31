@@ -137,8 +137,14 @@ applications:
           export DB_USER=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['username'];")
           export DB_PASS=$(echo $RELATIONSHIPS_JSON | php -r "echo json_decode(file_get_contents('php://stdin'), true)['database'][0]['password'];")
 
-          # Check if Magento is already installed
+          # Create minimal env.php if it doesn't exist (required for Magento to run)
           if [ ! -f app/etc/env.php ]; then
+            echo "Creating minimal env.php for bootstrap..."
+            echo "<?php return [];" > app/etc/env.php
+          fi
+
+          # Check if Magento is already installed
+          if [ ! -f app/etc/.installed ]; then
             echo "Running Magento installation..."
             php bin/magento setup:install \
               --base-url=https://$PLATFORM_ROUTES \
@@ -156,6 +162,7 @@ applications:
               --timezone=America/Chicago \
               --use-rewrites=1 \
               --backend-frontname=admin
+            touch app/etc/.installed
           else
             echo "Magento already installed, running upgrade..."
             php bin/magento setup:upgrade --keep-generated
