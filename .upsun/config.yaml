@@ -20,7 +20,7 @@ applications:
     
     variables:
       env:
-        # Node.js for build process
+        # Node.js for build process why do we need it ? it's not used in the build process
         NVM_VERSION: v0.39.0
         NODE_VERSION: 20
         
